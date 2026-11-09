@@ -6,397 +6,354 @@ import os
 
 from datetime import datetime, timedelta
 
-# =====================================================
-# 1. CONFIGURAÇÕES
-# =====================================================
+# ============================================================
+# CLOUDFLOW - CUSTOMER CHURN & RETENTION DATASET GENERATOR
+# ============================================================
 
-SEED = 42
+# Reproducibility
+np.random.seed(42)
+random.seed(42)
 
-np.random.seed(SEED)
-random.seed(SEED)
+# Configuration
+NUM_CUSTOMERS = 50000
+NUM_SUBSCRIPTIONS = 65000
+NUM_PAYMENTS = 600000
+NUM_USAGE_METRICS = 1000000
+NUM_SUPPORT_TICKETS = 150000
+NUM_CANCELLATIONS = 15000
 
-OUTPUT_DIR = "cloudflow_dataset"
+START_DATE = datetime(2023, 1, 1)
+END_DATE = datetime(2025, 12, 31)
+
+OUTPUT_DIR = "dataset"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-N_CUSTOMERS = 50_000
-N_SUBSCRIPTIONS = 65_000
-N_PAYMENTS = 600_000
-N_USAGE = 1_000_000
-N_TICKETS = 150_000
-N_CANCELLATIONS = 15_000
 
-START_DATE = pd.Timestamp("2023-01-01")
-END_DATE = pd.Timestamp("2025-12-31")
+# ============================================================
+# HELPER FUNCTIONS
+# ============================================================
 
-DATE_RANGE_DAYS = (END_DATE - START_DATE).days
+def random_date(start, end):
+    delta = end - start
+    random_days = random.randint(0, delta.days)
+    return start + timedelta(days=random_days)
 
-# =====================================================
-# 2. PLANOS
-# =====================================================
+
+def save_dataset(dataframe, filename):
+    filepath = os.path.join(OUTPUT_DIR, filename)
+    dataframe.to_csv(filepath, index=False)
+    print(f"Generated: {filename} - {len(dataframe):,} records")
+
+
+# ============================================================
+# 1. PLANS TABLE
+# ============================================================
 
 plans = pd.DataFrame({
     "plan_id": [1, 2, 3, 4],
     "plan_name": [
-        "Basic",
+        "Starter",
         "Professional",
         "Business",
         "Enterprise"
     ],
-    "monthly_price": [49.90, 99.90, 199.90, 499.90]
+    "monthly_price": [29.90, 59.90, 119.90, 249.90]
 })
 
 plans["annual_price"] = plans["monthly_price"] * 10
 
-# =====================================================
-# 3. CUSTOMERS
-# =====================================================
+save_dataset(plans, "plans.csv")
+
+
+# ============================================================
+# 2. CUSTOMERS TABLE
+# ============================================================
 
 regions = [
-    "Southeast",
-    "South",
-    "Northeast",
-    "Central-West",
-    "North"
+    "North America",
+    "South America",
+    "Europe",
+    "Asia Pacific",
+    "Middle East",
+    "Africa"
 ]
 
 industries = [
     "Technology",
-    "Retail",
     "Healthcare",
     "Finance",
-    "Education",
+    "Retail",
     "Manufacturing",
+    "Education",
     "Logistics",
     "Consulting",
-    "Food",
-    "Construction"
+    "Real Estate",
+    "Telecommunications"
 ]
 
 customers = pd.DataFrame({
-    "customer_id": np.arange(1, N_CUSTOMERS + 1),
-
+    "customer_id": range(1, NUM_CUSTOMERS + 1),
     "region": np.random.choice(
         regions,
-        N_CUSTOMERS,
-        p=[0.45, 0.20, 0.15, 0.12, 0.08]
+        NUM_CUSTOMERS,
+        p=[0.30, 0.18, 0.22, 0.16, 0.08, 0.06]
     ),
-
-    "industry": np.random.choice(
-        industries,
-        N_CUSTOMERS
-    ),
-
-    "registration_date": START_DATE +
-        pd.to_timedelta(
-            np.random.randint(
-                0,
-                DATE_RANGE_DAYS + 1,
-                N_CUSTOMERS
-            ),
-            unit="D"
-        )
+    "industry": np.random.choice(industries, NUM_CUSTOMERS),
+    "registration_date": [
+        random_date(START_DATE, END_DATE).date()
+        for _ in range(NUM_CUSTOMERS)
+    ]
 })
 
-# =====================================================
-# 4. SUBSCRIPTIONS
-# =====================================================
+save_dataset(customers, "customers.csv")
 
-subscription_customers = np.random.choice(
-    customers["customer_id"],
-    N_SUBSCRIPTIONS,
-    replace=True
+
+# ============================================================
+# 3. SUBSCRIPTIONS TABLE
+# ============================================================
+
+customer_ids = customers["customer_id"].tolist()
+
+subscription_rows = []
+
+for subscription_id in range(1, NUM_SUBSCRIPTIONS + 1):
+
+    customer_id = random.choice(customer_ids)
+
+    plan_id = random.choices(
+        [1, 2, 3, 4],
+        weights=[0.35, 0.35, 0.20, 0.10]
+    )[0]
+
+    start_date = random_date(START_DATE, END_DATE)
+
+    billing_cycle = random.choice(["Monthly", "Annual"])
+
+    is_cancelled = random.random() < 0.23
+
+    if is_cancelled:
+        end_date = random_date(start_date, END_DATE)
+        status = "Cancelled"
+    else:
+        end_date = None
+        status = "Active"
+
+    subscription_rows.append({
+        "subscription_id": subscription_id,
+        "customer_id": customer_id,
+        "plan_id": plan_id,
+        "start_date": start_date.date(),
+        "end_date": end_date.date() if end_date else None,
+        "status": status,
+        "billing_cycle": billing_cycle
+    })
+
+subscriptions = pd.DataFrame(subscription_rows)
+
+save_dataset(subscriptions, "subscriptions.csv")
+
+
+# ============================================================
+# 4. CANCELLATIONS TABLE
+# ============================================================
+
+cancelled_subscriptions = subscriptions[
+    subscriptions["status"] == "Cancelled"
+].copy()
+
+cancelled_subscriptions = cancelled_subscriptions.drop_duplicates(
+    subset=["customer_id"]
 )
 
-subscription_start = (
-    customers.set_index("customer_id")
-    .loc[subscription_customers, "registration_date"]
-    .reset_index(drop=True)
-)
-
-plan_ids = np.random.choice(
-    [1, 2, 3, 4],
-    N_SUBSCRIPTIONS,
-    p=[0.35, 0.35, 0.20, 0.10]
-)
-
-billing_cycles = np.random.choice(
-    ["Monthly", "Annual"],
-    N_SUBSCRIPTIONS,
-    p=[0.75, 0.25]
-)
-
-subscription_end = [
-    min(
-        START_DATE + pd.Timedelta(days=DATE_RANGE_DAYS),
-        start + pd.Timedelta(
-            days=int(np.random.randint(30, 1000))
-        )
-    )
-    for start in subscription_start
-]
-
-subscriptions = pd.DataFrame({
-    "subscription_id": np.arange(1, N_SUBSCRIPTIONS + 1),
-    "customer_id": subscription_customers,
-    "plan_id": plan_ids,
-    "billing_cycle": billing_cycles,
-    "start_date": subscription_start,
-    "end_date": subscription_end
-})
-
-subscriptions["status"] = np.where(
-    subscriptions["end_date"] < END_DATE,
-    "Cancelled",
-    "Active"
-)
-
-# =====================================================
-# 5. CANCELLATIONS
-# =====================================================
-
-cancelled_customers = np.random.choice(
-    customers["customer_id"],
-    N_CANCELLATIONS,
-    replace=False
+cancelled_subscriptions = cancelled_subscriptions.head(
+    NUM_CANCELLATIONS
 )
 
 cancellation_reasons = [
-    "High Price",
+    "High Pricing",
     "Poor Customer Support",
-    "Low Usage",
-    "Missing Features",
-    "Financial Problems",
-    "Competitor",
-    "Technical Issues"
-]
-
-reason_probabilities = [
-    0.20, 0.15, 0.25, 0.12, 0.10, 0.10, 0.08
+    "Lack of Features",
+    "Low Product Usage",
+    "Technical Issues",
+    "Competitor Alternative",
+    "Business Closure",
+    "Budget Constraints"
 ]
 
 cancellations = pd.DataFrame({
-    "cancellation_id": np.arange(
-        1, N_CANCELLATIONS + 1
+    "cancellation_id": range(
+        1, len(cancelled_subscriptions) + 1
     ),
-
-    "customer_id": cancelled_customers,
-
-    "cancellation_date": START_DATE +
-        pd.to_timedelta(
-            np.random.randint(
-                30,
-                DATE_RANGE_DAYS + 1,
-                N_CANCELLATIONS
-            ),
-            unit="D"
-        ),
-
+    "customer_id": cancelled_subscriptions["customer_id"].values,
+    "cancellation_date": cancelled_subscriptions["end_date"].values,
     "reason": np.random.choice(
         cancellation_reasons,
-        N_CANCELLATIONS,
-        p=reason_probabilities
+        len(cancelled_subscriptions),
+        p=[0.18, 0.12, 0.14, 0.18, 0.12, 0.12, 0.06, 0.08]
     )
 })
 
-# Atualiza o status das assinaturas dos clientes cancelados
-cancelled_ids = set(cancelled_customers)
+save_dataset(cancellations, "cancellations.csv")
 
-subscriptions.loc[
-    subscriptions["customer_id"].isin(cancelled_ids),
-    "status"
-] = "Cancelled"
 
-# =====================================================
-# 6. PAYMENTS
-# =====================================================
+# ============================================================
+# 5. PAYMENTS TABLE
+# ============================================================
 
-payment_subscriptions = np.random.choice(
-    subscriptions["subscription_id"],
-    N_PAYMENTS
-)
+payment_rows = []
 
-subscription_lookup = subscriptions.set_index(
-    "subscription_id"
-)
+subscription_lookup = subscriptions.set_index("subscription_id")
 
-payment_plan_ids = subscription_lookup.loc[
-    payment_subscriptions, "plan_id"
-].to_numpy()
+for payment_id in range(1, NUM_PAYMENTS + 1):
 
-payment_cycles = subscription_lookup.loc[
-    payment_subscriptions, "billing_cycle"
-].to_numpy()
+    subscription_id = random.randint(1, NUM_SUBSCRIPTIONS)
 
-price_lookup = plans.set_index("plan_id")["monthly_price"]
+    subscription = subscription_lookup.loc[subscription_id]
 
-payment_prices = np.array([
-    price_lookup.loc[plan_id]
-    for plan_id in payment_plan_ids
-])
+    plan_id = subscription["plan_id"]
+    billing_cycle = subscription["billing_cycle"]
 
-payment_amounts = np.where(
-    payment_cycles == "Annual",
-    payment_prices * 10,
-    payment_prices
-)
+    monthly_price = plans.loc[
+        plans["plan_id"] == plan_id,
+        "monthly_price"
+    ].iloc[0]
 
-payment_dates = START_DATE + pd.to_timedelta(
-    np.random.randint(
-        0,
-        DATE_RANGE_DAYS + 1,
-        N_PAYMENTS
-    ),
-    unit="D"
-)
+    amount = monthly_price * 12 if billing_cycle == "Annual" else monthly_price
 
-payment_status = np.random.choice(
-    ["Paid", "Failed", "Pending"],
-    N_PAYMENTS,
-    p=[0.90, 0.07, 0.03]
-)
+    payment_date = random_date(START_DATE, END_DATE)
 
-payments = pd.DataFrame({
-    "payment_id": np.arange(1, N_PAYMENTS + 1),
-    "subscription_id": payment_subscriptions,
-    "amount": np.round(payment_amounts, 2),
-    "payment_date": payment_dates,
-    "status": payment_status
-})
+    payment_status = random.choices(
+        ["Paid", "Failed", "Pending"],
+        weights=[0.90, 0.07, 0.03]
+    )[0]
 
-# =====================================================
-# 7. USAGE METRICS
-# =====================================================
+    if payment_status == "Failed":
+        amount = round(amount, 2)
+    else:
+        amount = round(amount, 2)
 
-usage_customers = np.random.choice(
-    customers["customer_id"],
-    N_USAGE
-)
+    payment_rows.append({
+        "payment_id": payment_id,
+        "subscription_id": subscription_id,
+        "amount": amount,
+        "payment_date": payment_date.date(),
+        "status": payment_status
+    })
 
-usage_dates = START_DATE + pd.to_timedelta(
-    np.random.randint(
-        0,
-        DATE_RANGE_DAYS + 1,
-        N_USAGE
-    ),
-    unit="D"
-)
+payments = pd.DataFrame(payment_rows)
 
-# Clientes possuem diferentes níveis de utilização
-login_count = np.random.poisson(
-    lam=5,
-    size=N_USAGE
-)
+save_dataset(payments, "payments.csv")
 
-active_minutes = np.random.gamma(
-    shape=2,
-    scale=30,
-    size=N_USAGE
-).astype(int)
 
-features_used = np.random.poisson(
-    lam=4,
-    size=N_USAGE
-)
+# ============================================================
+# 6. USAGE METRICS TABLE
+# ============================================================
 
-usage_metrics = pd.DataFrame({
-    "customer_id": usage_customers,
-    "usage_date": usage_dates,
-    "login_count": login_count,
-    "active_minutes": active_minutes,
-    "features_used": features_used
-})
+usage_rows = []
 
-# =====================================================
-# 8. SUPPORT TICKETS
-# =====================================================
+feature_options = [
+    "Dashboard",
+    "Reports",
+    "Inventory",
+    "CRM",
+    "Financial Management",
+    "Human Resources",
+    "Analytics",
+    "Automation",
+    "Integrations"
+]
 
-ticket_customers = np.random.choice(
-    customers["customer_id"],
-    N_TICKETS
-)
+for _ in range(NUM_USAGE_METRICS):
+
+    customer_id = random.choice(customer_ids)
+
+    usage_date = random_date(START_DATE, END_DATE)
+
+    login_count = np.random.poisson(8)
+
+    active_minutes = np.random.randint(5, 480)
+
+    features_used = random.sample(
+        feature_options,
+        k=random.randint(1, 5)
+    )
+
+    usage_rows.append({
+        "customer_id": customer_id,
+        "usage_date": usage_date.date(),
+        "login_count": login_count,
+        "active_minutes": active_minutes,
+        "features_used": "|".join(features_used)
+    })
+
+usage_metrics = pd.DataFrame(usage_rows)
+
+save_dataset(usage_metrics, "usage_metrics.csv")
+
+
+# ============================================================
+# 7. SUPPORT TICKETS TABLE
+# ============================================================
 
 ticket_categories = [
     "Technical Issue",
     "Billing",
-    "Account Access",
     "Feature Request",
-    "Bug Report",
-    "Integration"
+    "Account Management",
+    "Integration",
+    "Performance",
+    "General Inquiry"
 ]
 
-ticket_created_dates = START_DATE + pd.to_timedelta(
-    np.random.randint(
-        0,
-        DATE_RANGE_DAYS + 1,
-        N_TICKETS
-    ),
-    unit="D"
-)
+ticket_rows = []
 
-resolution_times = np.random.gamma(
-    shape=2,
-    scale=12,
-    size=N_TICKETS
-).astype(int)
+for ticket_id in range(1, NUM_SUPPORT_TICKETS + 1):
 
-support_tickets = pd.DataFrame({
-    "ticket_id": np.arange(1, N_TICKETS + 1),
+    customer_id = random.choice(customer_ids)
 
-    "customer_id": ticket_customers,
+    created_at = random_date(START_DATE, END_DATE)
 
-    "category": np.random.choice(
-        ticket_categories,
-        N_TICKETS,
-        p=[0.25, 0.20, 0.15, 0.12, 0.18, 0.10]
-    ),
+    resolution_time = round(
+        np.random.exponential(scale=24), 2
+    )
 
-    "created_at": ticket_created_dates,
+    category = random.choice(ticket_categories)
 
-    "resolution_time": resolution_times
-})
+    ticket_rows.append({
+        "ticket_id": ticket_id,
+        "customer_id": customer_id,
+        "category": category,
+        "created_at": created_at,
+        "resolution_time": resolution_time
+    })
 
-# =====================================================
-# 9. EXPORTAÇÃO DOS DATASETS
-# =====================================================
+support_tickets = pd.DataFrame(ticket_rows)
 
-tables = {
-    "customers": customers,
-    "subscriptions": subscriptions,
-    "plans": plans,
-    "payments": payments,
-    "usage_metrics": usage_metrics,
-    "support_tickets": support_tickets,
-    "cancellations": cancellations
+save_dataset(support_tickets, "support_tickets.csv")
+
+
+# ============================================================
+# 8. DATASET VALIDATION
+# ============================================================
+
+print("\n==========================================")
+print("CLOUDFLOW DATASET GENERATION COMPLETED")
+print("==========================================")
+
+datasets = {
+    "Customers": customers,
+    "Subscriptions": subscriptions,
+    "Plans": plans,
+    "Payments": payments,
+    "Usage Metrics": usage_metrics,
+    "Support Tickets": support_tickets,
+    "Cancellations": cancellations
 }
 
-for table_name, dataframe in tables.items():
+for name, df in datasets.items():
+    print(f"{name}: {len(df):,} rows")
 
-    filepath = os.path.join(
-        OUTPUT_DIR,
-        f"{table_name}.csv"
-    )
+print("\nOutput directory:", OUTPUT_DIR)
 
-    dataframe.to_csv(
-        filepath,
-        index=False,
-        encoding="utf-8-sig"
-    )
-
-    print(
-        f"{table_name}: "
-        f"{len(dataframe):,} registros gerados"
-    )
-
-# =====================================================
-# 10. RESUMO FINAL
-# =====================================================
-
-print("\n===================================")
-print("CLOUDFLOW DATASET GERADO!")
-print("===================================")
-
-for name, df in tables.items():
-    print(f"{name}: {len(df):,} registros")
-
-print("\nArquivos salvos em:", OUTPUT_DIR)
+print("\nDataset files successfully generated!")
